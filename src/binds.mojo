@@ -70,67 +70,67 @@ alias TIOCMSET: UInt64 = 0x5418
 
 # Create a namespace for C library functions to avoid conflicts
 struct libc:
-    """Namespace for C library function calls to avoid name conflicts."""
+    """Namespace for C library function calls using our wrapper library."""
 
-    """Sorry for the inconvenience, but this is a workaround, namespace method didn't work"""
-
-    # File operations
+    # Call our wrapper functions instead of standard system calls
     @staticmethod
     fn s_open(path: UnsafePointer[Int8], flags: Int32) -> Int32:
-        return external_call["open", Int32, UnsafePointer[Int8], Int32](
+        return external_call["serial_open", Int32, UnsafePointer[Int8], Int32](
             path, flags
         )
 
     @staticmethod
     fn s_close(fd: Int32) -> Int32:
-        return external_call["close", Int32, Int32](fd)
+        return external_call["serial_close", Int32, Int32](fd)
 
     @staticmethod
     fn s_read(fd: Int32, buf: UnsafePointer[Int8], count: UInt64) -> Int64:
-        return external_call["read", Int64, Int32, UnsafePointer[Int8], UInt64](
-            fd, buf, count
-        )
+        return external_call[
+            "serial_read", Int64, Int32, UnsafePointer[Int8], UInt64
+        ](fd, buf, count)
 
     @staticmethod
     fn s_write(fd: Int32, buf: UnsafePointer[Int8], count: UInt64) -> Int64:
         return external_call[
-            "write", Int64, Int32, UnsafePointer[Int8], UInt64
+            "serial_write", Int64, Int32, UnsafePointer[Int8], UInt64
         ](fd, buf, count)
 
     @staticmethod
     fn s_ioctl(fd: Int32, request: UInt64, arg: UnsafePointer[Int8]) -> Int32:
         return external_call[
-            "ioctl", Int32, Int32, UInt64, UnsafePointer[Int8]
+            "serial_ioctl", Int32, Int32, UInt64, UnsafePointer[Int8]
         ](fd, request, arg)
 
 
-# Define terminal manipulation functions outside the namespace
+# Use our wrapper functions for terminal operations
 fn tcgetattr(fd: Int32, termios_p: UnsafePointer[termios]) -> Int32:
-    return external_call["tcgetattr", Int32, Int32, UnsafePointer[termios]](
-        fd, termios_p
-    )
+    return external_call[
+        "serial_tcgetattr", Int32, Int32, UnsafePointer[termios]
+    ](fd, termios_p)
 
 
 fn tcsetattr(
     fd: Int32, optional_actions: Int32, termios_p: UnsafePointer[termios]
 ) -> Int32:
     return external_call[
-        "tcsetattr", Int32, Int32, Int32, UnsafePointer[termios]
+        "serial_tcsetattr", Int32, Int32, Int32, UnsafePointer[termios]
     ](fd, optional_actions, termios_p)
 
 
 fn tcflush(fd: Int32, queue_selector: Int32) -> Int32:
     """Flush non-transmitted output data, non-read input data, or both."""
-    return external_call["tcflush", Int32, Int32, Int32](fd, queue_selector)
+    return external_call["serial_tcflush", Int32, Int32, Int32](
+        fd, queue_selector
+    )
 
 
 fn cfsetispeed(termios_p: UnsafePointer[termios], speed: UInt32) -> Int32:
-    return external_call["cfsetispeed", Int32, UnsafePointer[termios], UInt32](
-        termios_p, speed
-    )
+    return external_call[
+        "serial_cfsetispeed", Int32, UnsafePointer[termios], UInt32
+    ](termios_p, speed)
 
 
 fn cfsetospeed(termios_p: UnsafePointer[termios], speed: UInt32) -> Int32:
-    return external_call["cfsetospeed", Int32, UnsafePointer[termios], UInt32](
-        termios_p, speed
-    )
+    return external_call[
+        "serial_cfsetospeed", Int32, UnsafePointer[termios], UInt32
+    ](termios_p, speed)

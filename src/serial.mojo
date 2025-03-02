@@ -4,9 +4,9 @@ Serial communication module for Mojo.
 Provides a PySerial-like interface for serial port communication.
 """
 
-from src import binds
 from src.binds import libc, termios
-from memory import UnsafePointer
+import src.binds as binds
+from memory import UnsafePointer, Pointer
 import time
 
 
@@ -60,16 +60,16 @@ struct Serial:
         if self.stopbits != 1:
             raise Error("Only 1 stop bit is currently supported")
 
-    fn open(mut self) raises:
+    fn s_open(mut self) raises:
         """Open the serial port."""
         if self._is_open:
             return
 
-        # Use StringLiteral's unsafe_cstr_ptr to get a proper C string pointer
+        # Use StringLiteral's unsafe_cstr_ptr to get a C string pointer
         var port_ptr = self.port.unsafe_cstr_ptr()
 
-        # Open port using libc namespace
-        self._fd = libc.open(port_ptr, binds.O_RDWR | binds.O_NOCTTY)
+        # Open port using libc namespace with renamed function
+        self._fd = libc.s_open(port_ptr, binds.O_RDWR | binds.O_NOCTTY)
         if self._fd < 0:
             raise Error("Could not open port " + self.port)
 
@@ -85,18 +85,18 @@ struct Serial:
 
         var result = binds.tcgetattr(self._fd, options_ptr)
         if result != 0:
-            libc.close(self._fd)
+            _ = libc.s_close(self._fd)
             raise Error("Could not get port attributes")
 
         # Set input and output baud rates
         result = binds.cfsetispeed(options_ptr, self.baudrate)
         if result != 0:
-            libc.close(self._fd)
+            _ = libc.s_close(self._fd)
             raise Error("Could not set input baud rate")
 
         result = binds.cfsetospeed(options_ptr, self.baudrate)
         if result != 0:
-            libc.close(self._fd)
+            _ = libc.s_close(self._fd)
             raise Error("Could not set output baud rate")
 
         # 8N1 (8 bits, no parity, 1 stop bit)
@@ -120,59 +120,56 @@ struct Serial:
         # Set the attributes
         result = binds.tcsetattr(self._fd, binds.TCSANOW, options_ptr)
         if result != 0:
-            libc.close(self._fd)
+            _ = libc.s_close(self._fd)
             raise Error("Could not set port attributes")
 
-    fn close(mut self):
+    fn s_close(mut self) raises:
         """Close the serial port."""
         if self._is_open:
-            _ = libc.close(
-                self._fd
-            )  # Add underscore to handle unused result warning
+            # Don't need to close a FileHandle since we don't store one
+            _ = libc.s_close(self._fd)
             self._is_open = False
 
-    fn read(self, size: Int) raises -> String:
+    fn s_read(self, size: Int) raises -> String:
         """Read up to size bytes from the serial port."""
         if not self._is_open:
             raise Error("Port not open")
 
-        # Allocate buffer with direct memory allocation
+        # Allocate a buffer for reading
         var buffer = UnsafePointer[Int8].alloc(size)
 
-        # Read directly into the buffer using libc namespace
-        var bytes_read = libc.read(self._fd, buffer, UInt64(size))
+        # Read directly using libc (avoiding FileHandle)
+        var bytes_read = libc.s_read(self._fd, buffer, UInt64(size))
 
         if bytes_read < 0:
             buffer.free()
             raise Error("Error reading from port")
 
-        # Create a string from the buffer
+        # Convert to string
         var result = String("")
         for i in range(bytes_read):
             result += chr(Int(buffer.load(i)))
 
-        # Free the allocated memory
         buffer.free()
-
         return result
 
-    fn write(self, data: String) raises -> Int:
+    fn s_write(self, data: String) raises -> Int:
         """Write data to the serial port."""
         if not self._is_open:
             raise Error("Port not open")
 
-        # Use unsafe_cstr_ptr to get a C string pointer
+        # Get C string pointer from the string
         var write_ptr = data.unsafe_cstr_ptr()
 
-        # Use libc namespace
-        var bytes_written = libc.write(self._fd, write_ptr, UInt64(len(data)))
+        # Write directly using libc (avoiding FileHandle)
+        var bytes_written = libc.s_write(self._fd, write_ptr, UInt64(len(data)))
 
         if bytes_written < 0:
             raise Error("Error writing to port")
 
         return Int(bytes_written)
 
-    fn readline(self, size: Int = 1024) raises -> String:
+    fn s_readline(self, size: Int = 1024) raises -> String:
         """
         Read a line from the serial port.
 
@@ -181,14 +178,13 @@ struct Serial:
         if not self._is_open:
             raise Error("Port not open")
 
-        # Allocate buffer for reading one byte at a time
-        var buffer = UnsafePointer[Int8].alloc(1)
         var result = String("")
+        var buffer = UnsafePointer[Int8].alloc(1)
 
         # Read one byte at a time until newline or size limit
         for _ in range(size):
-            # Use libc namespace
-            var bytes_read = libc.read(self._fd, buffer, 1)
+            # Read directly with libc
+            var bytes_read = libc.s_read(self._fd, buffer, 1)
 
             if bytes_read <= 0:
                 # End of file or error
@@ -202,11 +198,10 @@ struct Serial:
                 # End of line
                 break
 
-        # Free the buffer
         buffer.free()
         return result
 
-    fn flush(self) raises:
+    fn s_flush(self) raises:
         """Flush the serial port input and output buffers."""
         if not self._is_open:
             raise Error("Port not open")
@@ -218,9 +213,11 @@ struct Serial:
 
     fn __enter__(mut self) raises -> Self:
         """Context manager entry."""
-        self.open()
+        self.s_open()
         return self
 
-    fn __exit__(mut self, exc_type: AnyType, exc_val: AnyType, exc_tb: AnyType):
+    fn __exit__(
+        mut self, exc_type: AnyType, exc_val: AnyType, exc_tb: AnyType
+    ) raises:
         """Context manager exit."""
-        self.close()
+        self.s_close()

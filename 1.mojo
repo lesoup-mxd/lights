@@ -24,17 +24,17 @@ fn main() raises:
         print("Attempting to connect to Arduino on " + path + "...")
         arduino = Serial(path, baudrate=9600, timeout=2.0)
         try:
-            arduino.open()
+            arduino.s_open()
 
             # Wait for Arduino to reset after establishing connection
             time.sleep(2.0)
 
             # Send a test command to verify connection
-            _ = arduino.write("PING\n")
+            _ = arduino.s_write("PING\n")
             time.sleep(0.1)
 
             # Read the response (timeout after 2 seconds)
-            var response = arduino.readline()
+            var response = arduino.s_readline()
 
             if len(response) > 0:
                 print("Connected to Arduino on " + path)
@@ -43,7 +43,7 @@ fn main() raises:
                 break
             else:
                 print("No response from device on " + path)
-                arduino.close()
+                arduino.s_close()
         except:
             print("Failed to connect on " + path)
             # Continue to the next port
@@ -72,11 +72,11 @@ fn main() raises:
                 command += "\n"
 
             # Send command to Arduino
-            _ = arduino.write(command)
+            _ = arduino.s_write(command)
             time.sleep(0.1)  # Give Arduino time to process
 
             # Read response
-            var response = arduino.readline()
+            var response = arduino.s_readline()
             print("Arduino: " + response)
 
     except:
@@ -85,5 +85,5 @@ fn main() raises:
         # Close the connection
         if connected:
             print("Closing connection...")
-            arduino.close()
+            arduino.s_close()
             print("Connection closed.")
