@@ -2,9 +2,14 @@
 authors = ["lesoup-mxd <dulich.m@live.unic.ac.cy>"]
 channels = ["https://conda.modular.com/max-nightly", "https://conda.modular.com/max-nightly", "https://repo.prefix.dev/modular-community", "conda-forge"]
 name = "1"
-platforms = ["linux-64", "linux-aarch64", "osx-arm64"] #Please add your platform manually and exclude from commit, as magic cannot sync non-nightly platforms.
+platforms = ["linux-64"] #Please add your platform manually and exclude from commit, as magic cannot sync non-nightly platforms.
 version = "0.1.0"
 [tasks]
 
 [dependencies]
 max = "*"
+pyserial = ">=3.5,<4"
+numpy = ">=1.26.4,<2"
+pyaudio = ">=0.2.14,<0.3"
+alsa-lib = ">=1.2.13,<2"
+
