@@ -6,7 +6,7 @@
 
 // Decay parameters
 #define DECAY_RATE 0.7  // Decay factor (0.94 = 6% reduction per step)
-#define DECAY_DELAY 20  // Milliseconds between decay steps
+#define DECAY_DELAY 15  // Milliseconds between decay steps
 #define MIN_THRESHOLD 5 // Minimum PWM value before turning off
 
 float currentBrightness = 0.0;   // Current LED brightness (0.0-1.0)
@@ -92,7 +92,7 @@ void handleDecay()
 void updateLED()
 {
   // Apply gamma correction for more natural brightness perception
-  float gamma = 2.2;
+  float gamma = 2.8;
   float correctedBrightness = pow(currentBrightness, 1.0 / gamma);
 
   // Convert to PWM range (0-255)

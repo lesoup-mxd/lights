@@ -16,7 +16,7 @@ class AudioProcessor:
         self.energy_history = []
         self.bass_history = []      # Added: track bass energy separately
         self.last_beat_time = 0
-        self.min_beat_interval = 0.02  # Seconds between beats
+        self.min_beat_interval = 0.005  # Seconds between beats
         self.audio = None
         self.stream = None
         self.callback_fn = None
@@ -64,7 +64,7 @@ class AudioProcessor:
         # Multi-band energy extraction:
         # 1. Bass (60-250Hz) - bins 1-6
         bass_bins = fft_data[1:7]
-        bass_energy = min(1.0, np.sum(bass_bins) / 50000000.0)
+        bass_energy = min(1.0, np.sum(bass_bins) / 40000000.0)
         
         # 2. Mid-range (500Hz-2kHz) - bins ~12-46
         mid_bins = fft_data[12:47]
@@ -77,8 +77,8 @@ class AudioProcessor:
         # Combined energy with appropriate weights
         weighted_energy = (
             (0.5 * bass_energy) +      # Bass gets 50% weight
-            (0.2 * mid_energy) +       # Mids get 20% weight
-            (0.3 * high_energy)        # Highs get 30% weight
+            (0.15 * mid_energy) +       # Mids get 20% weight
+            (0.35 * high_energy)        # Highs get 30% weight
         )
         
         # Store each band separately
@@ -124,7 +124,7 @@ class AudioProcessor:
                 # Use whichever is stronger, with appropriate normalization
                 if bass_contrib > high_contrib:
                     beat_type = "BASS"
-                    energy_val = min(1.0, bass_energy * 1.8)
+                    energy_val = min(1.0, bass_energy * 2.3)
                 else:
                     beat_type = "HIGH"
                     energy_val = min(1.0, high_energy * 2.2)  # Boost high freqs more
@@ -196,8 +196,8 @@ if __name__ == "__main__":
 
     
     # Increase sensitivity for better detection
-    processor.energy_threshold = 1.3
-    processor.set_sensitivity(0.4)  # Higher sensitivity for bass
+    processor.energy_threshold = 1.5
+    processor.set_sensitivity(0.3)  # Higher sensitivity for bass
     processor.start_listening(on_beat)
     print("Listening for beats... Press Ctrl+C to stop")
     
@@ -218,4 +218,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         processor.stop_listening()
         arduino.send_value(0.0)  # Turn off LED
-        print("Stopped") 
+        print("Stopped")
