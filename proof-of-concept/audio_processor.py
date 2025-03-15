@@ -28,6 +28,16 @@ class AudioProcessor:
         self.smoothed_bass = 0.0
         self.smoothed_flux = 0.0
         self.smoothed_high = 0.0
+
+        self.last_anticipation_time = 0  # Track when we last anticipated a beat
+        self.anticipation_lockout = False  # Prevent multiple anticipations of the same beat
+        
+        # Add rhythm context
+        self.rhythm_context = RhythmContext()
+        
+        # Add groove characteristics
+        self.downbeat_detection = True  # Whether to detect bar downbeats
+        self.groove_anticipation = True  # Whether to anticipate based on groove
         
     def start_listening(self, callback_fn=None):
         """Start audio capture and beat detection"""
@@ -161,6 +171,9 @@ class AudioProcessor:
                 
                 self.beat_detected = True
                 self.last_beat_time = current_time
+                
+                # Clear anticipation lockout when a real beat happens
+                self.anticipation_lockout = False
 
                 # Add timestamp to beat history for dynamic adjustment
                 if not hasattr(self, 'beat_timestamps'):
@@ -190,6 +203,14 @@ class AudioProcessor:
                         self.callback_fn(energy_val)
                     except Exception as e:
                         print(f"Callback error: {e}")
+                
+                # After detecting a beat, add to rhythm context
+                if hasattr(self, 'rhythm_context'):
+                    self.rhythm_context.add_beat(current_time, energy_val, beat_type)
+                    
+                    # Update current beat position
+                    if hasattr(self.rhythm_context, 'beat_positions') and self.rhythm_context.beat_positions:
+                        self.current_beat_position = self.rhythm_context.beat_positions[-1][1] - 1  # 0-3 instead of 1-4
     
         # Reset thresholds if no beats for too long
         current_time = time.time()
@@ -240,7 +261,6 @@ class AudioProcessor:
                 return 0.0
             return self.energy_history[-1]
     
-    # Add this method to improve beat detection stability
     def is_true_onset(self, current_value, history, threshold_factor=1.2):
         """Determine if a spike is a true onset rather than noise"""
         if len(history) < 5:
@@ -468,12 +488,119 @@ class AudioProcessor:
             if not safe_mode and self.lock.locked():
                 self.lock.release()
 
+    def calculate_next_beat_time(self):
+        """Calculate next beat with psychological timing model"""
+        if not hasattr(self, 'last_beat_time') or not hasattr(self, 'last_bpm_value'):
+            return None
+            
+        beat_interval = 60.0 / self.last_bpm_value
+        
+        # Base prediction - mathematical next beat
+        next_beat_time = self.last_beat_time + beat_interval
+        
+        # Apply psychological adjustments if we have rhythm context
+        if hasattr(self, 'rhythm_context') and self.rhythm_context.pattern_confidence > 0.4:
+            # Adjust based on detected pattern - strong beats come slightly earlier
+            if self.rhythm_context.current_pattern:
+                # Extract current position in the pattern
+                if hasattr(self, 'current_beat_position'):
+                    position = (self.current_beat_position + 1) % len(self.rhythm_context.current_pattern)
+                    
+                    # Apply micro-timing based on position
+                    # Downbeats (first beat) often anticipated slightly
+                    if position == 0:  # Downbeat
+                        next_beat_time -= 0.015  # 15ms early anticipation
+                    # Upbeats (beats 2 and 4 in 4/4) slightly delayed
+                    elif position in [1, 3]:
+                        next_beat_time += 0.010  # 10ms delay
+        
+        return next_beat_time
+
+class RhythmContext:
+    """Analyze and predict rhythmic patterns based on psychological models"""
+    def __init__(self):
+        self.beat_strengths = []  # Store beat strength history 
+        self.beat_positions = []  # Store beat positions in bar (1.0-4.0)
+        self.pattern_confidence = 0.0  # Confidence in detected pattern
+        self.current_pattern = None
+        self.downbeat_energy = 1.0  # Energy multiplier for downbeats
+        self.max_pattern_length = 8  # Maximum beats to consider for pattern
+        
+    def add_beat(self, timestamp, energy, beat_type):
+        """Add a beat to the rhythm context"""
+        # Calculate position in rhythmic structure (estimate)
+        if len(self.beat_strengths) > 0:
+            # Estimate beat position based on timing
+            last_time = self.beat_positions[-1][0]
+            interval = timestamp - last_time
+            
+            # If interval is close to a reasonable beat duration (0.2-1.0 sec)
+            if 0.2 < interval < 1.0:
+                # Calculate position within a standard 4/4 bar
+                bar_progress = ((interval * 4.0) % 4.0) + 1.0
+                position = min(4.0, round(bar_progress))
+            else:
+                # If interval is unusual, assume it's position 1 (downbeat)
+                position = 1.0
+        else:
+            # First beat is assumed to be beat 1 (downbeat)
+            position = 1.0
+            
+        self.beat_strengths.append((timestamp, energy, beat_type))
+        self.beat_positions.append((timestamp, position))
+        
+        if len(self.beat_strengths) > self.max_pattern_length:
+            self.beat_strengths.pop(0)
+            self.beat_positions.pop(0)
+            
+        # Update pattern confidence
+        self._detect_pattern()
+        
+    def _detect_pattern(self):
+        """Detect repeating rhythmic patterns"""
+        # Need at least 4 beats to detect patterns
+        if len(self.beat_strengths) < 4:
+            self.pattern_confidence = 0.0
+            return
+        
+        # Get beat types and positions
+        types = [b[2] for b in self.beat_strengths]
+        positions = [p[1] for p in self.beat_positions]
+        energies = [b[1] for b in self.beat_strengths]
+        
+        # Check for 4-beat pattern
+        if len(types) >= 8:
+            type_match = sum(1 for i in range(4) if types[i] == types[i+4])
+            position_match = sum(1 for i in range(4) if positions[i] == positions[i+4])
+            
+            # Calculate confidence based on how many elements match
+            confidence = (type_match + position_match) / 8.0
+            if confidence > 0.6:
+                self.pattern_confidence = confidence
+                self.current_pattern = types[0:4]
+                return
+        
+        # Check for 2-beat pattern
+        if len(types) >= 4:
+            type_match = sum(1 for i in range(2) if types[i] == types[i+2])
+            position_match = sum(1 for i in range(2) if positions[i] == positions[i+2])
+            
+            confidence = (type_match + position_match) / 4.0
+            if confidence > 0.5:
+                self.pattern_confidence = confidence
+                self.current_pattern = types[0:2]
+                return
+        
+        # No clear pattern - gradually reduce confidence
+        self.pattern_confidence = max(0.0, self.pattern_confidence - 0.1)
+
 # For testing
 if __name__ == "__main__":
     processor = AudioProcessor()
     import serial_handler
     arduino = serial_handler.SerialHandler()
     arduino.connect()
+    
     def on_beat(energy):
         # Logarithmic mapping
         brightness = 0.8 * (1.0 - math.exp(-2.5 * energy)) / (1.0 - math.exp(-2.5))
@@ -488,13 +615,11 @@ if __name__ == "__main__":
         
         # Send to Arduino
         arduino.send_value_with_bpm(brightness, bpm)
-        
-
     
     # Increase sensitivity for better detection
     processor.energy_threshold = 1.2
     processor.set_sensitivity(0.5)  # Higher sensitivity for bass
-    processor.set_smoothing(window_size=3, ema_alpha=0.8)  # Set smoothing parameters
+    processor.set_smoothing(window_size=5, ema_alpha=0.8)  # Set smoothing parameters
 
     processor.start_listening(on_beat)
     print("Listening for beats... Press Ctrl+C to stop")
@@ -520,8 +645,7 @@ if __name__ == "__main__":
                 last_print_time = current_time
                 
             # Periodically adjust sensitivity
-            if current_time - last_adjustment_time > 8.0:  # Every 8 seconds
-                print("Attempting dynamic adjustment...")
+            if current_time - last_adjustment_time > 3.0:  # Every 3 seconds seems alr
                 result = processor.adjust_sensitivity_dynamically()
                 print(f"Dynamic adjustment: {result}")
                 
@@ -533,20 +657,51 @@ if __name__ == "__main__":
                 
                 last_adjustment_time = current_time
             
-            # Debug information
-            if debug_mode and current_time - last_debug_time > 1.0:  # Every second
-                if hasattr(processor, 'energy_threshold') and processor.bass_history:
-                    current_bass = processor.bass_history[-1]
-                    current_threshold = processor.energy_threshold * (sum(processor.bass_history[-10:]) / 10)
-                    time_since_beat = current_time - processor.last_beat_time
+            # Anticipate next beat with groove-aware anticipation
+            next_beat_time = processor.calculate_next_beat_time()
+
+            if next_beat_time and not processor.anticipation_lockout:
+                # Check if we're in the anticipation window (varies by beat importance)
+                time_to_beat = next_beat_time - current_time
+                
+                # Determine anticipation window based on rhythm context
+                if hasattr(processor, 'current_beat_position') and processor.current_beat_position == 0:
+                    # Downbeat (first beat of bar) - wider anticipation window
+                    anticipation_window = 0.15  # 150ms
+                    anticipation_brightness = 0.7  # Stronger anticipation
+                else:
+                    # Regular beat - standard window
+                    anticipation_window = 0.1  # 100ms
+                    anticipation_brightness = 0.5  # Normal anticipation
+                
+                # Apply pattern confidence
+                if hasattr(processor, 'rhythm_context'):
+                    # Higher confidence = earlier anticipation
+                    anticipation_window *= (1.0 + processor.rhythm_context.pattern_confidence * 0.5)
+                    # Higher confidence = stronger anticipation
+                    anticipation_brightness *= (1.0 + processor.rhythm_context.pattern_confidence * 0.2)
+                
+                if 0 < time_to_beat < anticipation_window:
+                    # Calculate anticipation brightness based on distance to beat
+                    # Closer to beat = brighter
+                    fade_factor = 1.0 - (time_to_beat / anticipation_window)
+                    brightness = anticipation_brightness * fade_factor
                     
-                    print(f"DEBUG: Bass={current_bass:.3f}, Threshold={current_threshold:.3f}, "+
-                          f"Since last beat={time_since_beat:.1f}s")
-                
-                last_debug_time = current_time
-                
+                    print(f"Groove anticipation: {time_to_beat*1000:.0f}ms to beat, confidence: {processor.rhythm_context.pattern_confidence:.2f}")
+                    on_beat(brightness)  # Trigger with calculated brightness
+                    
+                    # Lock out further anticipations until the next actual beat or timeout
+                    processor.anticipation_lockout = True
+                    processor.last_anticipation_time = current_time
+            
+            # Clear anticipation lockout if an actual beat hasn't occurred within 500ms
+            if processor.anticipation_lockout and current_time - processor.last_anticipation_time > 0.5:
+                processor.anticipation_lockout = False
+            
             time.sleep(0.03)
+    
     except KeyboardInterrupt:
+        arduino.send_value_with_bpm(0, 0)  # Send zero to Arduino on exit
         processor.stop_listening()
-        arduino.send_value(0.0)  # Turn off LED
+        arduino.close()
         print("Stopped")
