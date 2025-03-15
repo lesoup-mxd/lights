@@ -1,3 +1,5 @@
+// Protocol Version: 2.3
+
 // LED controller with automatic decay
 // Accepts values 0.0-1.0 and handles smooth decay
 

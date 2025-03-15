@@ -42,6 +42,20 @@ class SerialHandler:
         self.ser.write(command.encode('utf-8'))
         return True
     
+    def send_value_with_bpm(self, brightness, bpm=None):
+        """Send brightness value with optional BPM information. Requires Protocol >= v3.0."""
+        if not self.connected or not self.ser:
+            return False
+        
+        # Format with both brightness and BPM
+        if bpm is not None:
+            command = f"B:{brightness:.3f}:{int(bpm)}\n"
+        else:
+            command = f"{brightness:.3f}\n"  # Backward compatible
+            
+        self.ser.write(command.encode('utf-8'))
+        return True
+
     def send_binary_sequence(self, values):
         """Send a sequence of values as binary data without any newlines."""
         if not self.connected or not self.ser:
